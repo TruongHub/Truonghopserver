@@ -1,0 +1,216 @@
+--1
+local b='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+function base64_decode(data)
+    data = string.gsub(data, '[^'..b..'=]', '')
+    return (data:gsub('.', function(x)
+        if (x == '=') then return '' end
+        local r, f= '',(b:find(x)-1)
+        for i = 6, 1, -1 do 
+			r = r..(f%2^i-f%2^(i-1)>0 and '1' or '0') 
+		end
+        return r;
+    end):gsub('%d%d%d%d%d%d%d%d', function(x)
+        return string.char(tonumber(x,2))
+    end))
+end
+
+function xor_decrypt(data, key)
+    local output = ""
+    for i = 1, #data do
+        local data_char = data:sub(i, i)
+        local key_char = key:sub((i - 1) % #key + 1, (i - 1) % #key + 1)
+        output = output .. string.char(bit32.bxor(string.byte(data_char), string.byte(key_char)))
+    end
+    return output
+end
+
+function decode_secure_job_id(input_string)
+    local secret_key = "djtmemay"
+    local fake_prefix = "RiseHub-"
+    
+    local encoded_part = input_string:sub(#fake_prefix + 1)
+    local raw_xor = base64_decode(encoded_part)
+    return xor_decrypt(raw_xor, secret_key)
+end
+
+local cache = {}
+
+function flexibleParse(text)
+    local results = {}
+   
+    local ok, decoded = pcall(function() return game:GetService("HttpService"):JSONDecode(text) end)
+    local rawItems = {}
+    
+    if ok and type(decoded) == "table" then
+        if decoded.data then 
+            rawItems = decoded.data
+        elseif #decoded > 0 then
+            rawItems = decoded
+            rawItems = {decoded}
+        end
+    else
+        for block in text:gmatch("({.-})") do
+            table.insert(rawItems, block)
+        end
+    end
+
+    for _, v in pairs(rawItems) do
+        local job, players, name
+        
+        if type(v) == "table" then
+            job = v.jobid or v.Job_id or v.JobId
+            players = v.player or v.players or v.player_count or v.Players or "0"
+            name = v.boss or v.name_server or v.SwordName or "Server"
+        else
+            job = v:match('"jobid"%s*:%s*"([^"]+)"') or v:match('"Job_id"%s*:%s*"([^"]+)"') or v:match('"JobId"%s*:%s*"([^"]+)"')
+            players = v:match('"player_count"%s*:%s*"([^"]+)"') or v:match('"Players"%s*:%s*"([^"]+)"') or "0"
+            name = v:match('"name_server"%s*:%s*"([^"]+)"') or v:match('"SwordName"%s*:%s*"([^"]+)"') or v:match('"Type"%s*:%s*"([^"]+)"') or "Server"
+        end
+        
+        if job then
+            table.insert(results, {Job_id = job, player_count = players, name_server = name})
+        end
+    end
+    return results
+end
+
+function parse(Api)
+    if not cache[Api] then cache[Api] = {} end
+    
+    local success, response = pcall(function()
+        return http_request({
+            Url = tostring(Api),
+            Method = "GET"
+        })
+    end)
+    
+    if not success or not response or not response.Body then return nil end
+
+    local dataList = flexibleParse(response.Body)
+    local gg = {}
+
+    for _, v in pairs(dataList) do
+        local dit = v.Job_id
+        local decode = decode_secure_job_id(dit)
+        if dit and dit ~= game.JobId and not cache[Api][dit] then
+            if decode and decode ~= "" then
+                print("Decoded ID:", decode)
+                table.insert(gg, {
+                    ["Jobid"] = decode,
+                    ["Player"] = v.player_count or "0",
+                    --["PlaceId"] = v.placeid or game.PlaceId,
+                    ["Type"] = v.name_server or "Server"
+                })
+                cache[Api][dit] = true
+            end
+        end
+    end
+    return gg
+end
+function resetCache(Api)
+    if Api then
+        cache[Api] = {}
+    else
+        cache = {}
+    end
+end
+function makebtn(Tab, Api)
+    resetCache(Api)
+    local data = parse(Api)
+    if not data or #data == 0 then return end
+    for _, vl in pairs(data) do
+        Tab:Button({
+            Title = tostring(vl.Type),
+            Desc = "Players: " .. tostring(vl.Player) .. " | ID: " .. tostring(vl.Jobid):sub(1,10),
+            Callback = function()
+                game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, vl.Jobid, game.Players.LocalPlayer)
+            end
+        })
+    end
+end
+
+local api = {
+    ["Mirage Island"] = "http://fi10.bot-hosting.net:21181/api/name=mirage",
+    ["Dough King"] = "http://fi10.bot-hosting.net:21181/api/name=doughking",
+    ["Rip Indra"] = "http://fi10.bot-hosting.net:21181/api/name=ripindra",
+    ["Cake Prince"] = "http://fi10.bot-hosting.net:21181/api/name=cakeprince",
+    ["Soul Reaper"] = "http://fi10.bot-hosting.net:21181/api/name=soulreaper",
+    ["Darkbeard"] = "http://fi10.bot-hosting.net:21181/api/name=darkbeard",
+    ["Cursed Captain"] = "http://fi10.bot-hosting.net:21181/api/name=cursedcaptain",
+    ["Sword Legendary"] = "http://fi10.bot-hosting.net:21181/api/name=SwordLegendary",
+    ["Elite Hunter"] = "http://fi10.bot-hosting.net:21181/api/name=Elite",
+    ["Tyrant Of The Skies"] = "http://fi10.bot-hosting.net:21181/api/name=TyrantOfTheSkies",
+}
+
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+local Window = WindUI:CreateWindow({
+    Title = "Synet Hub",
+    Icon = "server",
+    Author = "discord.gg/URZ5qcVPwc",
+    Folder = "rise",
+    Size = UDim2.fromOffset(580, 460),
+    MinSize = Vector2.new(400, 300),
+    MaxSize = Vector2.new(850, 560),
+    Transparent = true,
+    Theme = "Dark",
+    Resizable = true,
+    SideBarWidth = 200,
+    BackgroundImageTransparency = 0.42,
+    HideSearchBar = true,
+    ScrollBarEnabled = false,
+    User = {
+        Enabled = true,
+        Anonymous = false,
+        Callback = function()
+            print("hello " .. game.Players.LocalPlayer.Name)
+        end,
+    },
+})
+local info = Window:Tab({
+    Title = "About us",
+    Icon = "info"
+})
+local dsadsa = info:Paragraph({
+    Title = string.format("Hello %s!", game.Players.LocalPlayer.Name),
+    Desc = "enjoy this script!",
+})
+local asddasdas = info:Button({
+    Title = "My Community",
+    Desc = "discord.gg/gEpSeMAu5f",
+    Callback = function()
+        setclipboard("https://discord.gg/gEpSeMAu5f")
+    end
+})
+local Section = info:Section({ 
+    Title = "Other Scripts - Free",
+})
+local Code = info:Code({
+    Title = "Script Blox Fruit - Main",
+    Code = [==[
+getgenv().Team = "Pirates" --Marines, Pirates
+loadstring(game:HttpGet('https://raw.githubusercontent.com/asher-realrise/project/refs/heads/main/loadder.lua'))()
+    ]==]
+})
+local Code = info:Code({
+    Title = "Script Blox Fruit - Hop Boss",
+    Code = [==[
+repeat wait() until game:IsLoaded() and game.Players.LocalPlayer 
+loadstring(game:HttpGet("https://rise-evo.xyz/apiv3/BossHopFix.lua"))()
+    ]==]
+})
+
+for name, url in pairs(api) do
+    local Tab = Window:Tab({ Title = name, Icon = "align-end-vertical" })
+    Tab:Button({
+        Title = "Refresh",
+        Desc = "Click to refresh the server list",
+        Callback = function()
+            makebtn(Tab, url)
+        end
+    })
+    task.spawn(function()
+        while task.wait(18) do
+            makebtn(Tab, url)
+        end
+    end)
+end
